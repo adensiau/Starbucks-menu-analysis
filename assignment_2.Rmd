@@ -1,0 +1,373 @@
+---
+title: "assignment_2"
+output: html_document
+date: "2023-10-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+tuesdata <- tidytuesdayR::tt_load('2021-12-21')
+tuesdata <- tidytuesdayR::tt_load(2021, week = 52)
+#message = FALSE
+#warning = FALSE
+```
+
+
+```{r libraries}
+library(flexdashboard)
+library(tidyverse)
+library(naniar)
+library(readr)
+library(ggplot2)
+library(plotly)
+library(visdat)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(fastDummies)
+library(rpart)
+library(rpart.plot)
+library(broomstick)
+library(caret)
+```
+
+```{r starbucks}
+starbucks_original <- tuesdata$starbucks
+starbucks_original
+```
+
+```{r data exploration}
+summary(starbucks_original)
+head(starbucks_original)
+```
+```{r missing data}
+any_na(starbucks_original) # no missing data
+n_miss(starbucks_original) 
+```
+```{r duplicate data}
+duplicates <- starbucks_original %>% filter(duplicated(starbucks_original))
+duplicates # no duplicates
+```
+```{r fixing incorrect datatypes}
+starbucks_original$trans_fat_g <- as.numeric(starbucks_original$trans_fat_g)
+starbucks_original$fiber_g <- as.numeric(starbucks_original$fiber_g)
+```
+
+
+
+```{r group by average}
+starbucks <- starbucks_original %>% 
+    group_by(product_name) %>% 
+    summarise(
+        mean_milk = (mean(milk)),
+        mean_calories = round(mean(calories), 2),
+        mean_total_fat_g = round(mean(total_fat_g), 2),
+        mean_sat_fat_g = round(mean(saturated_fat_g), 2),
+        mean_trans_fat_g = round(mean(trans_fat_g, na.rm = TRUE), 2),
+        mean_cholesterol_mg = round(mean(cholesterol_mg), 2),
+        mean_sodium_mg = round(mean(sodium_mg), 2),
+        mean_total_carbs_g = round(mean(total_carbs_g), 2),
+        mean_fiber_g = round(mean(fiber_g, na.rm = TRUE), 2),
+        mean_sugar_g = round(mean(sugar_g), 2),
+        mean_caffeine_mg = round(mean(caffeine_mg), 2)
+    ) 
+
+starbucks
+```
+```{r classifying drinks}
+starbucks <- starbucks %>% 
+    mutate(drink_type = case_when(
+        grepl("tea Lemonade", product_name, ignore.case = TRUE) ~ "Other",
+        grepl("Tea Lemonade", product_name, ignore.case = TRUE) ~ "Other",
+        grepl("Smoothie", product_name, ignore.case = TRUE) ~ "Smoothie",
+        grepl("Chai", product_name, ignore.case = TRUE) ~ "Tea",
+        grepl("Tea", product_name, ignore.case = TRUE) ~ "Tea",
+        grepl("tea", product_name, ignore.case = TRUE) ~ "Tea",
+        grepl("Espresso", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Latte", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Coffee", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("coffee", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Caffè", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Cappuccino", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Frappuccino", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Macchiato", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Flat", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Mocha", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Doubleshot", product_name, ignore.case = TRUE) ~ "Coffee",
+        grepl("Cold brew", product_name, ignore.case = TRUE) ~ "Coffee",
+        TRUE ~ "Other"
+    )) # classifying all drink types to subset the data
+
+starbucks <- starbucks %>% 
+    select(product_name, drink_type, everything())
+starbucks
+
+starbucks <- starbucks %>% 
+    dummy_cols(select_columns = "drink_type")
+starbucks
+    
+```
+
+```{r subsetting data}
+coffees <- starbucks %>% 
+    filter(drink_type == 'Coffee')
+
+teas <- starbucks %>% 
+    filter(drink_type == 'Tea')
+
+smoothies <- starbucks %>% 
+    filter(drink_type == 'Smoothie')
+
+others <- starbucks %>% 
+    filter(drink_type == 'Other')
+```
+
+```{r group by drink type}
+drinks <- starbucks %>% 
+    group_by(drink_type) %>% 
+    summarise(avg_milk = (mean(mean_milk)),
+        avg_calories = round(mean(mean_calories), 2),
+        avg_total_fat_g = round(mean(mean_total_fat_g), 2),
+        avg_sat_fat_g = round(mean(mean_sat_fat_g), 2),
+        avg_trans_fat_g = round(mean(mean_trans_fat_g), 2),
+        avg_cholesterol_mg = round(mean(mean_cholesterol_mg), 2),
+        avg_sodium_mg = round(mean(mean_sodium_mg), 2),
+        avg_total_carbs_g = round(mean(mean_total_carbs_g), 2),
+        avg_fiber_g = round(mean(mean_fiber_g), 2),
+        avg_sugar_g = round(mean(mean_sugar_g), 2),
+        avg_caffeine_mg = round(mean(mean_caffeine_mg), 2)
+    )
+drinks
+```
+Saturated fats are the most important in determining how healthy a product is
+
+
+```{r saturated fats vs trans fats for drink type}
+contributors <- c('avg_calories', 'avg_total_fat_g', 'avg_sat_fat_g', 'avg_trans_fat_g', 'avg_cholesterol_mg', 'avg_cholesterol_mg', 'avg_sodium_mg', 'avg_total_carbs_mg', 'avg_fiber_g', 'avg_sugar_g', 'avg_caffeine_mg')
+
+ggplot(drinks, 
+       aes(x = avg_trans_fat_g,
+           y = avg_sat_fat_g,
+           colour = `drink_type`,
+           size = 50)) +
+    labs(title = "Stats for each beverage", y = "Mean Saturated Fat (g)") +
+    theme(axis.text.x = element_text(angle = 90)) + 
+    geom_point()
+```
+```{r saturated fats vs trans fats for drink type}
+ggplot(starbucks, 
+       aes(x = mean_trans_fat_g,
+           y = mean_sat_fat_g,
+           colour = `drink_type`,
+           )) +
+    labs(title = "Stats for each beverage", y = "Mean Saturated Fat (g)") +
+    theme(axis.text.x = element_text(angle = 90)) + 
+    geom_point()
+```
+```{r calories via drink type}
+ggplot(starbucks, 
+       aes(y = mean_calories,
+           colour = `drink_type`,
+           )) +
+    labs(title = "Stats for each beverage", y = "Mean calories (g)") +
+    theme(axis.text.x = element_text(angle = 90)) + 
+    geom_histogram()
+```
+
+```{r sugar by type of drink box plot}
+ggplot(starbucks, 
+       aes(x = drink_type,
+           y = mean_sugar_g,
+           colour = `drink_type`,
+           )) +
+    labs(title = "Box plot for Mean sugar for types of Starbucks drinks",x = "Drink type" ,y = "Mean sugar (g)") +
+    theme(axis.text.x = element_text(angle = 45)) + 
+    geom_boxplot()
+```
+
+```{r Calories by type of drink box plot}
+ggplot(starbucks, 
+       aes(x = drink_type,
+           y = mean_calories,
+           colour = `drink_type`,
+           )) +
+    labs(title = "Box plot for Mean calories for types of Starbucks drinks",x = "Drink type" ,y = "Mean calories (g)") +
+    theme(axis.text.x = element_text(angle = 45)) + 
+    geom_boxplot()
+```
+
+```{r Caffeine by type of drink box plot}
+ggplot(starbucks, 
+       aes(x = drink_type,
+           y = mean_caffeine_mg,
+           colour = `drink_type`,
+           )) +
+    labs(title = "Box plot for Mean Caffeine for types of Starbucks drinks",x = "Drink type" ,y = "Mean Caffeine (mg)") +
+    theme(axis.text.x = element_text(angle = 45)) + 
+    geom_boxplot()
+```
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r Predicting drink type from caffeine, sugar levels, and calories}
+starbucks <- starbucks %>% 
+    mutate(drink_type = factor(drink_type)) %>% 
+    filter(drink_type %in% c('Coffee', 'Tea', 'Smoothie', 'Other'))
+
+starbucks %>% count(drink_type) 
+
+rp_drinks <- rpart(drink_type ~ mean_sugar_g + starbucks$mean_caffeine_mg + starbucks$mean_calories,
+                      data = select(starbucks, `drink_type`, mean_sugar_g))
+rpart.plot(rp_drinks)
+
+```
+
+```{r accuracy of classification tree}
+drinks_aug <- augment(rp_drinks, type = "class") 
+
+drinks_confusion_matrix <- table(drinks_aug$drink_type, drinks_aug$.fitted)
+drinks_confusion_matrix_df <- as.data.frame.matrix(drinks_confusion_matrix)
+colnames(drinks_confusion_matrix_df) <- c("Predicted: Coffee", "Predicted: Other", "Predicted: Smoothie", "Predicted: Tea")
+rownames(drinks_confusion_matrix_df) <- c("Actual: Cofee", "Actual: Other", "Actual: Smoothie", "Actual: Tea")
+
+drinks_confusion_matrix_df
+```
+```{r drinks accuracy calculations}
+drinks_accuracy = (drinks_confusion_matrix_df[1,1] + drinks_confusion_matrix_df[2,2] + drinks_confusion_matrix_df[3,3] + drinks_confusion_matrix_df[4,4]) / sum(drinks_confusion_matrix_df)
+
+drinks_accuracy
+```
+
+
+
+```{r correlations}
+variables <- starbucks[, -c(1, 2) ]
+variables
+correlation <- round(cor(variables), 2) # correlation matrix
+
+  get_upper_tri <- function(cormat){ 
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  } # function for getting upper triangle by setting lower to NA
+
+reorder_cormat <- function(cormat){
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <-cormat[hc$order, hc$order]
+}
+
+correlation <- reorder_cormat(correlation)
+upper_tri <- get_upper_tri(correlation)
+melted_correlation <- melt(upper_tri, na.rm = TRUE)
+heatmap <- ggplot(melted_correlation, aes(Var2, Var1, fill = value)) +
+    geom_tile(color = 'white') +
+    scale_fill_gradient2(low = 'blue', high = 'red', mid = 'white',
+                         midpoint = 0, limit = c(-1,1), space = 'Lab',
+                         name = "Correlation") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1,
+                                     size = 8, hjust = 1)) +
+    coord_fixed() +
+    ggtitle("Correlation Heatmap")
+print(heatmap)
+```
+
+```{r does size impact nutritional information}
+sizes <- starbucks_original %>% 
+    group_by(size) %>% 
+    summarise(
+        mean_milk = round(mean(milk), 2),
+        mean_serv_size_ml = round(mean(serv_size_m_l), 2),
+        mean_calories = round(mean(calories), 2),
+        mean_total_fat_g = round(mean(total_fat_g), 2),
+        mean_sat_fat_g = round(mean(saturated_fat_g), 2),
+        mean_trans_fat_g = round(mean(trans_fat_g), 2),
+        mean_chol_mg = round(mean(cholesterol_mg), 2),
+        mean_sodium_mg = round(mean(sodium_mg), 2),
+        mean_carbs_g = round(mean(total_carbs_g), 2),
+        mean_fiber_g = round(mean(fiber_g), 2),
+        mean_sugar_g = round(mean(sugar_g), 2),
+        mean_caffeine_mg = round(mean(caffeine_mg), 2)
+    )
+
+order = c('short', 'tall', 'grande', 'venti', 'trenta', 'Average daily intake')
+
+sizes <- sizes %>% 
+    filter(size %in% c('short','tall','grande','venti','trenta')) %>% 
+    select(c('size','mean_serv_size_ml','mean_calories', 'mean_sugar_g', 'mean_total_fat_g', 'mean_caffeine_mg')) %>% 
+    arrange(factor(size, levels = order))
+sizes
+```
+```{r average daily intake}
+# Create a data frame with average daily intakes
+average_intakes <- data.frame(
+  size = "Average daily intake",
+  mean_serv_size_ml = NA,
+  mean_calories = 2039, # Calculate the average sugar content
+  mean_sugar_g = 30,
+  mean_caffeine_mg = 135, # Calculate the average caffeine content
+  mean_total_fat_g = 63           # Calculate the average fat content
+)
+
+sizes <- rbind(sizes, average_intakes)
+sizes <- sizes[c(1,2,3,4,5,6), ]
+sizes
+```
+
+```{r bar for sugar in each size}
+sizes$size <- factor(sizes$size, levels = order)
+
+ggplot(sizes,
+       aes(x = size, y = mean_sugar_g)) +
+    geom_bar(stat = "summary", fun = "mean", fill = "blue") +
+    labs(x = "Drink size", y = "Average Sugar Content (g)",
+         title = "Average Sugar Content by drink size")
+```
+
+
+```{r scatter for sugar in each size}
+sizes$size <- factor(sizes$size, levels = order)
+
+ggplot(sizes,
+       aes(x = size, y = mean_caffeine_mg)) +
+    geom_bar(stat = "summary", fun = "mean", fill = "blue") +
+    labs(x = "Drink size", y = "Average Caffeine Content (mg)",
+         title = "Average Caffeine Content by drink size")
+```
+```{r calories bar graph for sizes}
+sizes$size <- factor(sizes$size, levels = order)
+
+ggplot(sizes,
+       aes(x = size, y = mean_calories)) +
+    geom_bar(stat = "summary", fun = "mean", fill = "blue") +
+    labs(x = "Drink size", y = "Average Calories",
+         title = "Average Calories by drink size")
+```
+
+```{r decision tree to classify drink size via sugar and caffeine}
+starbucks_original <- starbucks_original %>% 
+    mutate(size = factor(size)) %>% 
+    filter(size %in% c('short', 'tall', 'grande', 'venti', 'trenta'))
+
+starbucks_original %>% count(size) 
+
+rp_starbucks <- rpart(size ~ sugar_g + starbucks_original$caffeine_mg,
+                      data = select(starbucks_original, size, sugar_g))
+rpart.plot(rp_starbucks, extra = 1)
+```
+```{r accuracy of classification tree}
+starbucks_aug <- augment(rp_starbucks, type = "class") 
+
+starbucks_aug %>% 
+  count(size, .fitted)
+```
+```{r accuracy}
+confusion_matrix <- table(starbucks_aug$size, starbucks_aug$.fitted)
+confusion_matrix_df <- as.data.frame.matrix(confusion_matrix)
+colnames(confusion_matrix_df) <- c("Predicted: Grande", "Predicted: Short", "Predicted: Tall", "Predicted: Trenta", "Predicted: Venti")
+rownames(confusion_matrix_df) <- c("Actual: Grande", "Actual: Short", "Actual: Tall", "Actual: Trenta", "Actual: Venti")
+
+confusion_matrix_df
+```
+```{r accuracy calculations}
+accuracy = (confusion_matrix_df[1,1] + confusion_matrix_df[2,2] + confusion_matrix_df[3,3] + confusion_matrix_df[4,4] + confusion_matrix_df[5,5]) / sum(confusion_matrix_df)
+accuracy
+```
